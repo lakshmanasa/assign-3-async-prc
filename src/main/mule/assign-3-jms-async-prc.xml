@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="e4fefa73-2170-43f1-a9c2-6be736a93ebb" >
+		<http:listener-connection host="0.0.0.0" port="8082" />
+	</http:listener-config>
+	<os:object-store name="Os" doc:name="Object store" doc:id="5b730fc3-6bb7-4dec-966e-c8fc42871fda" />
+	<jms:config name="JMS_Config" doc:name="JMS Config" doc:id="d3990869-b201-4521-b1e3-9058d5f6571a" >
+		<jms:active-mq-connection username="admin" password="admin" >
+			<jms:factory-configuration brokerUrl="tcp://localhost:61616" />
+		</jms:active-mq-connection>
+	</jms:config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="71cc2271-1694-4218-a0f2-1078cd6a4fc9" />
+	<flow name="assign-3-jms-async-prcFlow" doc:id="f99afb4b-8601-4b61-9bd4-e76b0b061dd6" >
+		<http:listener doc:name="Listener" doc:id="c3bbb14b-5486-4750-b9ed-f0c2b0d7dd40" config-ref="HTTP_Listener_config" path="/async"/>
+		<os:store doc:name="Store" doc:id="f10c8dd8-3878-4c5b-93da-acabe7c88f77" key="store" objectStore="Os">
+			<os:value ><![CDATA[#[correlationId]]]></os:value>
+		</os:store>
+		<ee:transform doc:name="Transform Message" doc:id="9ae0b709-96dc-4061-a397-3cf6675c5637" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	(userid: attributes.queryParams.userid1) if(attributes.queryParams.userid1 != null),
+	(userid: attributes.queryParams.userid2) if(attributes.queryParams.userid2 != null),
+	(userid: attributes.queryParams.userid3) if(attributes.queryParams.userid3 != null)
+}]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<jms:publish doc:name="Publish" doc:id="565eb349-e4a5-4e66-a126-28574b7fdee5" config-ref="JMS_Config" destination="qone">
+			<jms:message outboundContentType="application/json" >
+				<jms:reply-to destination="qtwo" />
+			</jms:message>
+		</jms:publish>
+		<set-payload value="#[payload]" doc:name="Set Payload" doc:id="5204bdae-382f-4f55-878c-b4b87bd0d494" />
+	</flow>
+	<flow name="assign-3-jms-async-prcFlow1" doc:id="3790d141-2034-41c3-b502-42a782d34ce9" >
+		<jms:listener doc:name="On New Message" doc:id="320ec689-8bc6-404c-9e3f-d56083e755d2" config-ref="JMS_Config" destination="qtwo">
+			<jms:consumer-type >
+				<jms:queue-consumer />
+			</jms:consumer-type>
+			<jms:response outboundContentType="application/json" />
+		</jms:listener>
+		<set-variable value="#[correlationId]" doc:name="Set Variable" doc:id="4065c6ba-3150-4661-9757-9338404ce695" variableName="a"/>
+		<os:retrieve doc:name="Retrieve" doc:id="7e4c5582-dc73-4b1b-b661-0b23a5f2d830" key="store" objectStore="Os">
+			<os:default-value ><![CDATA[#["0"]]]></os:default-value>
+		</os:retrieve>
+		<choice doc:name="Choice" doc:id="43f516e2-7cfe-430c-b721-6ea62769db9d" >
+			<when expression="#[payload == vars.a]">
+				<file:write doc:name="Write" doc:id="c1f5fae4-f74b-4aa3-b570-8054448acba4" config-ref="File_Config" path='#["E:\\" ++ "luckysai"]' mode="APPEND">
+					<file:content ><![CDATA[#["hi " ++ vars.a]]]></file:content>
+				</file:write>
+			</when>
+			<otherwise >
+				<ee:transform doc:name="Transform Message" doc:id="95747870-79a5-4604-80ae-3ebdbc96e0c8" >
+					<ee:message >
+						<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"message": "correlationId doesn't match"
+}]]></ee:set-payload>
+					</ee:message>
+				</ee:transform>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
